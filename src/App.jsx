@@ -341,7 +341,7 @@ export default function App() {
     });
     txt += `
 
-📍 Portal: (your portal link here)`;
+📍 Portal: https://forest-sports-leaderboard.vercel.app/public`;
     try {
       txt = txt.replace(/\\n/g, "\n");
       await navigator.clipboard.writeText(txt);
