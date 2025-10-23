@@ -166,13 +166,12 @@ function PublicLeaderboard() {
             leaderboard.length === 0 ? <div className="small">No team scores yet</div> :
             leaderboard.map((r, idx) => (
               <div key={r.team} style={{ display: "flex", justifyContent: "space-between", padding: 8, borderRadius: 6, background: "rgba(15,118,110,0.04)", marginBottom: 6 }}>
-                <div><strong>{idx+1}. {r.team}</strong><div className="small">{r.gold}🥇 {r.silver}🥈 {r.bronze}🥉 {r.fourth}4th</div></div>
+                <div><strong>{idx+1}. {r.team}</strong><div className="small">{r.gold}🥇 {r.silver}🥈 {r.bronze}🥉 {r.fourth} 4th</div></div>
                 <div style={{ fontWeight: 700 }}>{r.points} pts</div>
               </div>
             ))
           )}
           <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-            <button className="btn" onClick={copyWhatsApp}>Copy WhatsApp message</button>
             <button className="btn secondary" onClick={fetchEntries}>Reload</button>
           </div>
           {message && <div className="error" style={{ marginTop: 8 }}>{message}</div>}
@@ -487,7 +486,7 @@ export default function App() {
         {leaderboard.length === 0 ? <div className="small">No team scores yet</div> :
           leaderboard.map((r, idx) => (
             <div key={r.team} style={{ display: "flex", justifyContent: "space-between", padding: 8, borderRadius: 6, background: "rgba(15,118,110,0.04)", marginBottom: 6 }}>
-              <div><strong>{idx + 1}. {r.team}</strong><div className="small">{r.gold}🥇 {r.silver}🥈 {r.bronze}🥉 {r.fourth}4th</div></div>
+              <div><strong>{idx + 1}. {r.team}</strong><div className="small">{r.gold}🥇 {r.silver}🥈 {r.bronze}🥉 {r.fourth} 4th</div></div>
               <div style={{ fontWeight: 700 }}>{r.points} pts</div>
             </div>
           ))
