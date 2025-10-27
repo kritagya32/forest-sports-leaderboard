@@ -32,6 +32,8 @@ const POINTS_DEFAULT = { 1: 5, 2: 3, 3: 1, 4: 0 };
 const SPECIAL_TEAM_SPORTS = ["Football","Volleyball","Basketball","Kabaddi","Tug of War"];
 const POINTS_SPECIAL = { 1: 10, 2: 5, 3: 3, 4: 3 };
 
+const PAGE_SIZE = 20;
+
 /* ------------- helper functions ------------- */
 function allowedSportsFor(ageClass) {
   if (!ageClass) return [];
@@ -45,7 +47,7 @@ function allowedSportsFor(ageClass) {
   if (ageClass === "Men - Veteran (45+)") {
     const excluded = new Set([
       "800 m","1500 m","5000 m","4x100 m relay","triple jump","400 m walking","800 m walking",
-      "carrom (singles)","carrom (doubles)"
+      "carrom (singles)","carrom (doubles)","Volleyball","Kabaddi","Basketball","Tug of War","Football", "Lawn Tennis"
     ].map(s => s.toLowerCase()));
     return all.filter(s => !excluded.has(s.toLowerCase()));
   }
@@ -53,8 +55,8 @@ function allowedSportsFor(ageClass) {
   if (ageClass === "Men - Senior Veteran (53+)") {
     const allowed = new Set([
       "800 m walking",
-      "table tennis(singles)","table tennis(doubles)","table tennis (mix doubles)",
-      "badminton (singles)","badminton (doubles)","badminton (mixed doubles)",
+      "table tennis(singles)","table tennis(doubles)",
+      "badminton (singles)","badminton (doubles)",
       "quiz","10k marathon"
     ].map(s => s.toLowerCase()));
     return all.filter(s => allowed.has(s.toLowerCase()));
@@ -65,7 +67,7 @@ function allowedSportsFor(ageClass) {
   }
 
   if (ageClass === "Women - Veteran (40+)") {
-    const allowed = new Set(["800 m walking","quiz","10k marathon"].map(s => s.toLowerCase()));
+    const allowed = new Set(["400 m walking","quiz","10k marathon"].map(s => s.toLowerCase()));
     return all.filter(s => allowed.has(s.toLowerCase()));
   }
 
@@ -134,7 +136,6 @@ function PublicLeaderboard() {
 
 📍 (official portal)`;
     try {
-      // ensure real newlines
       txt = txt.replace(/\\n/g, "\n");
       await navigator.clipboard.writeText(txt);
       setMessage("WhatsApp message copied to clipboard. Paste into WhatsApp.");
@@ -224,9 +225,13 @@ export default function App() {
   });
   const [message, setMessage] = useState("");
 
-  // Manage entries filters
+  // NEW: record last submitted event (so admin can directly share right after submit)
+  const [lastSubmittedEvent, setLastSubmittedEvent] = useState(null); // { ageClass, sport }
+
+  // Manage entries filters & pagination
   const [filterAge, setFilterAge] = useState("");
   const [filterSport, setFilterSport] = useState("");
+  const [page, setPage] = useState(1);
 
   const fetchEntries = useCallback(async () => {
     setLoading(true);
@@ -284,6 +289,8 @@ export default function App() {
     setLoading(false);
     if (error) { setMessage("Insert error: " + (error.message || JSON.stringify(error))); return; }
     setMessage("Results submitted.");
+    // set last submitted event so admin can immediately generate WhatsApp for this event
+    setLastSubmittedEvent({ ageClass: meta.ageClass, sport: meta.sport });
     setMeta({ ageClass: "", sport: "" });
     setPositions({ 1: { team: "", player: "" }, 2: { team: "", player: "" }, 3: { team: "", player: "" }, 4: { team: "", player: "" } });
     await fetchEntries();
@@ -328,6 +335,32 @@ export default function App() {
   }, {});
   const leaderboard = Object.values(teamTotals).sort((a,b)=>b.points-a.points);
 
+  // Helper: build a WhatsApp message for a given event (ageClass + sport)
+  const buildEventWhatsAppText = (ageClass, sport) => {
+    const now = new Date().toLocaleString();
+    const eventEntries = entries
+      .filter(en => en.age_class === ageClass && en.sport === sport)
+      .sort((a,b) => (a.position || 999) - (b.position || 999));
+    let txt = `🏅 *${sport}* — *${ageClass}*
+26th H.P. Forest Sports & Duty Meet, 2025
+Updated: ${now}
+
+`;
+    if (eventEntries.length === 0) {
+      txt += `No recorded positions yet for this event.\n\n`;
+    } else {
+      eventEntries.forEach(e => {
+        const who = e.team_name ? `${e.team_name}${e.player_name ? ` — ${e.player_name}` : ""}` : (e.player_name || "Unnamed");
+        const posSuffix = e.position === 1 ? "1st" : e.position === 2 ? "2nd" : e.position === 3 ? "3rd" : `${e.position}th`;
+        txt += `${posSuffix} — ${who} (${e.points || 0} pts)\n`;
+      });
+      txt += `\n`;
+    }
+    txt += `📍 Portal: ${window.location.origin}/public`;
+    return txt;
+  };
+
+  // Generate and copy + open WhatsApp share for the entire leaderboard (existing function)
   const generateWhatsAppMessage = async () => {
     const now = new Date().toLocaleString();
     let txt = `🏆 *26th H.P. Forest Sports & Duty Meet, 2025*
@@ -340,24 +373,58 @@ export default function App() {
     });
     txt += `
 
-📍 Portal: https://forest-sports-leaderboard.vercel.app/public`;
+📍 Portal: ${window.location.origin}/public`;
     try {
       txt = txt.replace(/\\n/g, "\n");
       await navigator.clipboard.writeText(txt);
-      setMessage("WhatsApp message copied to clipboard — paste into group to share.");
+      const wa = `https://wa.me/?text=${encodeURIComponent(txt)}`;
+      window.open(wa, "_blank");
+      setMessage("WhatsApp message copied to clipboard — opened WhatsApp web to share.");
     } catch (err) {
       setMessage("Clipboard copy failed: " + (err.message || ""));
     }
   };
 
-  const filteredEntries = entries.filter(e => {
+  // NEW: Generate WhatsApp for a specific event (ageClass + sport)
+  const generateWhatsAppForEvent = async (ageClass, sport) => {
+    if (!ageClass || !sport) { setMessage("Missing event details."); return; }
+    const txt = buildEventWhatsAppText(ageClass, sport);
+    try {
+      await navigator.clipboard.writeText(txt.replace(/\\n/g, "\n"));
+      const wa = `https://wa.me/?text=${encodeURIComponent(txt)}`;
+      window.open(wa, "_blank");
+      setMessage(`WhatsApp message for "${sport}" (${ageClass}) copied to clipboard — opened WhatsApp web to share.`);
+    } catch (err) {
+      setMessage("Clipboard copy failed: " + (err.message || ""));
+    }
+  };
+
+  // FILTER + SORT logic for Manage Entries
+  const filtered = entries.filter(e => {
     if (filterAge && filterAge !== e.age_class) return false;
     if (filterSport && filterSport !== e.sport) return false;
     return true;
   });
 
+  // Sort by sport, then age_class, then position (ascending)
+  const filteredSorted = filtered.slice().sort((a, b) => {
+    const sCmp = String(a.sport || "").localeCompare(String(b.sport || ""));
+    if (sCmp !== 0) return sCmp;
+    const aCmp = String(a.age_class || "").localeCompare(String(b.age_class || ""));
+    if (aCmp !== 0) return aCmp;
+    const posA = Number(a.position || 999), posB = Number(b.position || 999);
+    return posA - posB;
+  });
+
+  // Pagination logic
+  const totalRows = filteredSorted.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [totalPages]); // clamp page
+  const pageStart = (page - 1) * PAGE_SIZE;
+  const pageRows = filteredSorted.slice(pageStart, pageStart + PAGE_SIZE);
+
   const downloadCSV = () => {
-    const rows = filteredEntries.map(r => ({
+    const rows = pageRows.map(r => ({
       id: r.id,
       team: r.team_name ?? "Individual",
       player: r.player_name ?? "",
@@ -367,7 +434,7 @@ export default function App() {
       points: r.points,
       created_at: r.created_at
     }));
-    if (rows.length === 0) { setMessage("No rows to download for current filters."); return; }
+    if (rows.length === 0) { setMessage("No rows to download for current page/filters."); return; }
     const header = Object.keys(rows[0]);
     const csv = [
       header.join(","),
@@ -380,12 +447,12 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `leaderboard_entries_${new Date().toISOString().slice(0,10)}.csv`;
+    a.download = `leaderboard_entries_page${page}_${new Date().toISOString().slice(0,10)}.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    setMessage("CSV download started.");
+    setMessage("CSV download started for current page.");
   };
 
   if (!logged) {
@@ -477,6 +544,16 @@ export default function App() {
           </div>
 
           {message && <div className="error" style={{ marginTop: 8 }}>{message}</div>}
+          {/* NEW: show Generate WhatsApp for last submitted event */}
+          {lastSubmittedEvent && (
+            <div style={{ marginTop: 10 }}>
+              <div className="small">Last submitted event: <strong>{lastSubmittedEvent.sport}</strong> — <em>{lastSubmittedEvent.ageClass}</em></div>
+              <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
+                <button className="btn" onClick={() => generateWhatsAppForEvent(lastSubmittedEvent.ageClass, lastSubmittedEvent.sport)}>Generate WhatsApp for last submitted event</button>
+                <button className="btn secondary" onClick={() => setLastSubmittedEvent(null)}>Dismiss</button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -504,7 +581,7 @@ export default function App() {
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 10 }}>
           <div>
             <label>Filter Age Class</label>
-            <select className="input" value={filterAge} onChange={e => setFilterAge(e.target.value)}>
+            <select className="input" value={filterAge} onChange={e => { setFilterAge(e.target.value); setPage(1); }}>
               <option value="">All age classes</option>
               {AGE_CLASSES.map(a => <option key={a} value={a}>{a}</option>)}
             </select>
@@ -512,38 +589,106 @@ export default function App() {
 
           <div>
             <label>Filter Sport</label>
-            <select className="input" value={filterSport} onChange={e => setFilterSport(e.target.value)}>
+            <select className="input" value={filterSport} onChange={e => { setFilterSport(e.target.value); setPage(1); }}>
               <option value="">All sports</option>
               {SPORTS.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
 
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <button className="btn" onClick={downloadCSV}>Download CSV</button>
-            <button className="btn secondary" onClick={fetchEntries}>Reload</button>
+            <button className="btn" onClick={downloadCSV}>Download Current Page CSV</button>
+            <button className="btn secondary" onClick={() => { fetchEntries(); setPage(1); }}>Reload</button>
           </div>
         </div>
 
         {loading ? <div className="small">Loading...</div> : (
-          <table className="table">
-            <thead><tr><th>Team</th><th>Player</th><th>Sport</th><th>Age Class</th><th>Pos</th><th>Pts</th><th>Action</th></tr></thead>
-            <tbody>
-              {filteredEntries.map(e => (
-                <tr key={e.id}>
-                  <td>{e.team_name || <span className="small">Individual</span>}</td>
-                  <td>{e.player_name || "-"}</td>
-                  <td>{e.sport}</td>
-                  <td>{e.age_class}</td>
-                  <td>{e.position}</td>
-                  <td>{e.points}</td>
-                  <td>
-                    <button className="btn small" onClick={() => editEntry(e)}>Edit</button>
-                    <button className="btn secondary" onClick={() => deleteEntry(e.id)}>Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <>
+            <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead><tr><th style={{ width: '14%' }}>Team</th><th style={{ width: '18%' }}>Player</th><th style={{ width: '20%' }}>Sport / Age Class</th><th style={{ width: '8%' }}>Pos</th><th style={{ width: '8%' }}>Pts</th><th style={{ width: '22%' }}>Action</th></tr></thead>
+              <tbody>
+                {/* We'll render a "Share Event" full-row before the first position of each event */}
+                {pageRows.length === 0 && <tr><td colSpan={6} className="small">No entries for current filters / page.</td></tr>}
+
+                {pageRows.map((e, idx) => {
+                  // Determine if this row is the first position row for its event (sport + age_class)
+                  const globalIndex = pageStart + idx; // index into filteredSorted
+                  const isFirstForEvent = (() => {
+                    if (globalIndex === 0) return true;
+                    const prev = filteredSorted[globalIndex - 1];
+                    if (!prev) return true;
+                    return !(prev.sport === e.sport && prev.age_class === e.age_class);
+                  })();
+
+                  return (
+                    <React.Fragment key={e.id}>
+                      {isFirstForEvent && (
+                        <tr style={{ background: 'rgba(247,251,250,0.8)' }}>
+                          <td colSpan={6} style={{ padding: 8 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div style={{ fontWeight: 700 }}>{e.sport} — {e.age_class}</div>
+                              <div>
+                                <button className="btn" onClick={() => generateWhatsAppForEvent(e.age_class, e.sport)}>Share Event</button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+
+                      <tr>
+                        <td>{e.team_name || <span className="small">Individual</span>}</td>
+                        <td>{e.player_name || "-"}</td>
+                        <td>{e.sport} <div className="small" style={{ color: '#6b7280' }}>{e.age_class}</div></td>
+                        <td>{e.position}</td>
+                        <td>{e.points}</td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button className="btn small" onClick={() => editEntry(e)}>Edit</button>
+                            <button className="btn secondary" onClick={() => deleteEntry(e.id)}>Delete</button>
+                          </div>
+                        </td>
+                      </tr>
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            {/* Pagination controls */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
+              <div className="small">Showing {Math.min(totalRows, pageStart + 1)} - {Math.min(totalRows, pageStart + pageRows.length)} of {totalRows} rows</div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <button className="btn small" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>Prev</button>
+                {/* show up to 7 page numbers centered around current page */}
+                {Array.from({ length: totalPages }).map((_, i) => {
+                  const pNum = i + 1;
+                  // show logic: show if near current page or first/last pages
+                  if (totalPages > 7) {
+                    if (pNum !== 1 && pNum !== totalPages && Math.abs(pNum - page) > 3) {
+                      // skip rendering this page number (compact)
+                      if (i === 1 && page > 4) {
+                        return <span key={pNum} className="small" style={{ padding: '0 6px' }}>...</span>;
+                      }
+                      if (i === totalPages - 2 && page < totalPages - 3) {
+                        return <span key={pNum} className="small" style={{ padding: '0 6px' }}>...</span>;
+                      }
+                      return null;
+                    }
+                  }
+                  return (
+                    <button
+                      key={pNum}
+                      className={`btn small ${pNum === page ? 'primary' : ''}`}
+                      onClick={() => setPage(pNum)}
+                      aria-current={pNum === page ? 'page' : undefined}
+                    >
+                      {pNum}
+                    </button>
+                  );
+                })}
+                <button className="btn small" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next</button>
+              </div>
+            </div>
+          </>
         )}
       </div>
     </div>
