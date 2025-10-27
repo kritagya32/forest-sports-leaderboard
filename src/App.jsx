@@ -257,6 +257,7 @@ export default function App() {
   const setPositionTeam = (pos, team) => setPositions(p=>({...p, [pos]: {...p[pos], team}}));
   const setPositionPlayer = (pos, player) => setPositions(p=>({...p, [pos]: {...p[pos], player}}));
 
+  // submitResults with duplicate event check
   const submitResults = async () => {
     setMessage("");
     if (!meta.ageClass) { setMessage("Please select Age Class."); return; }
@@ -265,6 +266,30 @@ export default function App() {
     const allowed = allowedSportsFor(meta.ageClass).map(s => s.toLowerCase());
     if (!allowed.includes(meta.sport.toLowerCase())) {
       setMessage(`The sport "${meta.sport}" is not permitted for ${meta.ageClass}.`);
+      return;
+    }
+
+    // Check: do we already have any entries for this sport + age_class?
+    setLoading(true);
+    try {
+      const { data: existing, error: checkError } = await supabase
+        .from("leaderboard_entries")
+        .select("id", { count: "exact", head: false })
+        .eq("sport", meta.sport)
+        .eq("age_class", meta.ageClass);
+      if (checkError) {
+        setLoading(false);
+        setMessage("Error checking existing results: " + (checkError.message || JSON.stringify(checkError)));
+        return;
+      }
+      if (Array.isArray(existing) && existing.length > 0) {
+        setLoading(false);
+        setMessage(`Results for "${meta.sport}" — "${meta.ageClass}" already exist. Delete existing entries for this event before submitting new results.`);
+        return;
+      }
+    } catch (err) {
+      setLoading(false);
+      setMessage("Error checking existing results: " + (err.message || ""));
       return;
     }
 
@@ -282,7 +307,7 @@ export default function App() {
         created_at: new Date().toISOString()
       });
     }
-    if (rows.length === 0) { setMessage("No positions filled — nothing to submit."); return; }
+    if (rows.length === 0) { setLoading(false); setMessage("No positions filled — nothing to submit."); return; }
 
     setLoading(true);
     const { data, error } = await supabase.from("leaderboard_entries").insert(rows).select();
@@ -296,12 +321,31 @@ export default function App() {
     await fetchEntries();
   };
 
-  const deleteEntry = async (id) => {
-    if (!confirm("Delete this entry?")) return;
-    const { error } = await supabase.from("leaderboard_entries").delete().eq("id", id);
-    if (error) { setMessage("Delete error: " + (error.message || JSON.stringify(error))); return; }
-    setMessage("Deleted.");
-    await fetchEntries();
+  // deleteEvent: deletes all rows for sport + age_class
+  const deleteEvent = async (ageClass, sport) => {
+    if (!confirm(`Delete all recorded positions for "${sport}" — "${ageClass}" ? This will remove all rows for this event.`)) return;
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from("leaderboard_entries")
+        .delete()
+        .eq("sport", sport)
+        .eq("age_class", ageClass);
+      setLoading(false);
+      if (error) {
+        setMessage("Delete error: " + (error.message || JSON.stringify(error)));
+        return;
+      }
+      setMessage(`Deleted all entries for "${sport}" — "${ageClass}".`);
+      // clear lastSubmittedEvent if it matches deleted event
+      if (lastSubmittedEvent && lastSubmittedEvent.sport === sport && lastSubmittedEvent.ageClass === ageClass) {
+        setLastSubmittedEvent(null);
+      }
+      await fetchEntries();
+    } catch (err) {
+      setLoading(false);
+      setMessage("Delete error: " + (err.message || ""));
+    }
   };
 
   const editEntry = async (entry) => {
@@ -385,7 +429,7 @@ Updated: ${now}
     }
   };
 
-  // NEW: Generate WhatsApp for a specific event (ageClass + sport)
+  // Generate WhatsApp for a specific event (ageClass + sport)
   const generateWhatsAppForEvent = async (ageClass, sport) => {
     if (!ageClass || !sport) { setMessage("Missing event details."); return; }
     const txt = buildEventWhatsAppText(ageClass, sport);
@@ -606,7 +650,6 @@ Updated: ${now}
             <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr><th style={{ width: '14%' }}>Team</th><th style={{ width: '18%' }}>Player</th><th style={{ width: '20%' }}>Sport / Age Class</th><th style={{ width: '8%' }}>Pos</th><th style={{ width: '8%' }}>Pts</th><th style={{ width: '22%' }}>Action</th></tr></thead>
               <tbody>
-                {/* We'll render a "Share Event" full-row before the first position of each event */}
                 {pageRows.length === 0 && <tr><td colSpan={6} className="small">No entries for current filters / page.</td></tr>}
 
                 {pageRows.map((e, idx) => {
@@ -622,12 +665,13 @@ Updated: ${now}
                   return (
                     <React.Fragment key={e.id}>
                       {isFirstForEvent && (
-                        <tr style={{ background: 'rgba(247,251,250,0.8)' }}>
+                        <tr style={{ background: 'rgba(247,251,250,0.9)' }}>
                           <td colSpan={6} style={{ padding: 8 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <div style={{ fontWeight: 700 }}>{e.sport} — {e.age_class}</div>
-                              <div>
+                              <div style={{ display: 'flex', gap: 8 }}>
                                 <button className="btn" onClick={() => generateWhatsAppForEvent(e.age_class, e.sport)}>Share Event</button>
+                                <button className="btn secondary" onClick={() => deleteEvent(e.age_class, e.sport)}>Delete Event</button>
                               </div>
                             </div>
                           </td>
@@ -643,7 +687,7 @@ Updated: ${now}
                         <td>
                           <div style={{ display: 'flex', gap: 6 }}>
                             <button className="btn small" onClick={() => editEntry(e)}>Edit</button>
-                            <button className="btn secondary" onClick={() => deleteEntry(e.id)}>Delete</button>
+                            {/* per-row Delete removed — use Delete Event above to remove all positions at once */}
                           </div>
                         </td>
                       </tr>
@@ -655,21 +699,21 @@ Updated: ${now}
 
             {/* Pagination controls */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
-              <div className="small">Showing {Math.min(totalRows, pageStart + 1)} - {Math.min(totalRows, pageStart + pageRows.length)} of {totalRows} rows</div>
+              <div className="small">Showing {totalRows === 0 ? 0 : pageStart + 1} - {Math.min(totalRows, pageStart + pageRows.length)} of {totalRows} rows</div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 <button className="btn small" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>Prev</button>
                 {/* show up to 7 page numbers centered around current page */}
                 {Array.from({ length: totalPages }).map((_, i) => {
                   const pNum = i + 1;
-                  // show logic: show if near current page or first/last pages
+                  // compact display logic for many pages
                   if (totalPages > 7) {
                     if (pNum !== 1 && pNum !== totalPages && Math.abs(pNum - page) > 3) {
-                      // skip rendering this page number (compact)
+                      // show ellipses once near edges
                       if (i === 1 && page > 4) {
-                        return <span key={pNum} className="small" style={{ padding: '0 6px' }}>...</span>;
+                        return <span key={"e1"} className="small" style={{ padding: '0 6px' }}>...</span>;
                       }
                       if (i === totalPages - 2 && page < totalPages - 3) {
-                        return <span key={pNum} className="small" style={{ padding: '0 6px' }}>...</span>;
+                        return <span key={"e2"} className="small" style={{ padding: '0 6px' }}>...</span>;
                       }
                       return null;
                     }
