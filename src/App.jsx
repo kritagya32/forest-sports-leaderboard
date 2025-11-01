@@ -77,9 +77,35 @@ function allowedSportsFor(ageClass) {
 function pointsForSportPosition(sport, position) {
   if (!sport || !position) return 0;
   const sportLc = sport.toLowerCase();
+
+  // team sports use special points
   if (SPECIAL_TEAM_SPORTS.map(s => s.toLowerCase()).includes(sportLc)) {
     return POINTS_SPECIAL[position] ?? 0;
   }
+
+  // For Chess, Carrom, Table Tennis, Lawn Tennis, Badminton:
+  // 1st => 5, 2nd => 3, 3rd => 1, 4th => 1
+  const equalThirdFourth = [
+    "chess",
+    "carrom (singles)",
+    "carrom (doubles)",
+    "table tennis(singles)",
+    "table tennis(doubles)",
+    "table tennis (mix doubles)",
+    "badminton (singles)",
+    "badminton (doubles)",
+    "badminton (mixed doubles)",
+    "lawn tennis"
+  ].map(s => s.toLowerCase());
+
+  if (equalThirdFourth.includes(sportLc)) {
+    if (position === 1) return 5;
+    if (position === 2) return 3;
+    if (position === 3 || position === 4) return 1;
+    return 0;
+  }
+
+  // default (all other sports)
   return POINTS_DEFAULT[position] ?? 0;
 }
 
