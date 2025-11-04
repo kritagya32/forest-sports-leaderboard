@@ -14,7 +14,7 @@ const SPORTS = [
   "400 m walking","800 m walking","Chess","Carrom (Singles)","Carrom (Doubles)",
   "Table Tennis(Singles)","Table Tennis(Doubles)","Table Tennis (Mix Doubles)",
   "Badminton (Singles)","Badminton (Doubles)","Badminton (Mixed Doubles)",
-  "Volleyball","Kabaddi","Basketball","Tug of War","Football","Lawn Tennis","Quiz","10k Marathon"
+  "Volleyball","Kabaddi","Basketball","Tug of War","Football","Lawn Tennis","Lawn Tennis (Doubles)","Quiz","10k Marathon"
 ];
 
 const AGE_CLASSES = [
@@ -47,7 +47,8 @@ function allowedSportsFor(ageClass) {
   if (ageClass === "Men - Veteran (45+)") {
     const excluded = new Set([
       "800 m","1500 m","5000 m","4x100 m relay","triple jump","400 m walking","800 m walking",
-      "carrom (singles)","carrom (doubles)","Volleyball","Kabaddi","Basketball","Tug of War","Football", "Lawn Tennis"
+      "carrom (singles)","carrom (doubles)","volleyball","kabaddi","basketball","tug of war","football",
+      "lawn tennis","lawn tennis (doubles)"
     ].map(s => s.toLowerCase()));
     return all.filter(s => !excluded.has(s.toLowerCase()));
   }
@@ -63,7 +64,10 @@ function allowedSportsFor(ageClass) {
   }
 
   if (ageClass === "Women - Open") {
-    return all.filter(s => s.toLowerCase() !== "football" && s.toLowerCase() !== "lawn tennis");
+    return all.filter(s => {
+      const lc = s.toLowerCase();
+      return lc !== "football" && lc !== "lawn tennis" && lc !== "lawn tennis (doubles)";
+    });
   }
 
   if (ageClass === "Women - Veteran (40+)") {
@@ -83,7 +87,7 @@ function pointsForSportPosition(sport, position) {
     return POINTS_SPECIAL[position] ?? 0;
   }
 
-  // For Chess, Carrom, Table Tennis, Lawn Tennis, Badminton:
+  // For Chess, Carrom, Table Tennis, Lawn Tennis, Lawn Tennis (Doubles), Badminton:
   // 1st => 5, 2nd => 3, 3rd => 1, 4th => 1
   const equalThirdFourth = [
     "chess",
@@ -95,7 +99,8 @@ function pointsForSportPosition(sport, position) {
     "badminton (singles)",
     "badminton (doubles)",
     "badminton (mixed doubles)",
-    "lawn tennis"
+    "lawn tennis",
+    "lawn tennis (doubles)"
   ].map(s => s.toLowerCase());
 
   if (equalThirdFourth.includes(sportLc)) {
