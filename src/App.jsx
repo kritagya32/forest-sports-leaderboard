@@ -254,6 +254,9 @@ export default function App() {
   // NEW: record last submitted event (so admin can directly share right after submit)
   const [lastSubmittedEvent, setLastSubmittedEvent] = useState(null); // { ageClass, sport }
 
+  // NEW: override value for 4th position points (null => use default)
+  const [fourthPointsOverride, setFourthPointsOverride] = useState("");
+
   // Manage entries filters & pagination
   const [filterAge, setFilterAge] = useState("");
   const [filterSport, setFilterSport] = useState("");
@@ -276,9 +279,16 @@ export default function App() {
   const handleAgeClassChange = (val) => {
     setMeta({ ageClass: val, sport: "" });
     setPositions({ 1: { team: "", player: "" }, 2: { team: "", player: "" }, 3: { team: "", player: "" }, 4: { team: "", player: "" } });
+    setFourthPointsOverride("");
     setMessage("");
   };
-  const handleSportChange = (val) => { setMeta(m=>({...m, sport: val})); setMessage(""); };
+  const handleSportChange = (val) => {
+    setMeta(m=>({...m, sport: val}));
+    // default the fourth override to computed default for this sport
+    const defaultFourth = val ? pointsForSportPosition(val, 4) : "";
+    setFourthPointsOverride(defaultFourth === 0 ? "" : String(defaultFourth));
+    setMessage("");
+  };
 
   const setPositionTeam = (pos, team) => setPositions(p=>({...p, [pos]: {...p[pos], team}}));
   const setPositionPlayer = (pos, player) => setPositions(p=>({...p, [pos]: {...p[pos], player}}));
@@ -319,17 +329,22 @@ export default function App() {
       return;
     }
 
+    const override4 = (fourthPointsOverride !== "") ? Number(fourthPointsOverride) : null;
     const rows = [];
     for (let pos = 1; pos <= 4; pos++) {
       const { team, player } = positions[pos];
       if ((!team || team === "") && (!player || player.trim() === "")) continue;
+      let pts = pointsForSportPosition(meta.sport, pos);
+      if (pos === 4 && override4 !== null && !isNaN(override4)) {
+        pts = override4;
+      }
       rows.push({
         team_name: team && team !== "" ? team : null,
         player_name: player && player.trim() !== "" ? player.trim() : null,
         sport: meta.sport,
         age_class: meta.ageClass,
         position: pos,
-        points: pointsForSportPosition(meta.sport, pos),
+        points: pts,
         created_at: new Date().toISOString()
       });
     }
@@ -344,6 +359,7 @@ export default function App() {
     setLastSubmittedEvent({ ageClass: meta.ageClass, sport: meta.sport });
     setMeta({ ageClass: "", sport: "" });
     setPositions({ 1: { team: "", player: "" }, 2: { team: "", player: "" }, 3: { team: "", player: "" }, 4: { team: "", player: "" } });
+    setFourthPointsOverride("");
     await fetchEntries();
   };
 
@@ -379,11 +395,26 @@ export default function App() {
     const newPlayer = prompt("Player name (optional)", entry.player_name || "");
     const newPos = prompt("Position (1-4)", String(entry.position));
     const posNum = Number(newPos);
+    // Prompt for points explicitly (pre-filled with current points).
+    // This allows admin to set fourth-place points if needed (or any row).
+    const newPointsRaw = prompt("Points (leave blank to auto-calc)", String(entry.points ?? ""));
+    let finalPoints;
+    if (newPointsRaw === null) {
+      // user cancelled
+      return;
+    } else if (newPointsRaw.trim() === "") {
+      // auto-calc based on sport + (possibly adjusted position)
+      finalPoints = pointsForSportPosition(entry.sport, isNaN(posNum) ? entry.position : posNum);
+    } else {
+      const np = Number(newPointsRaw);
+      finalPoints = isNaN(np) ? pointsForSportPosition(entry.sport, isNaN(posNum) ? entry.position : posNum) : np;
+    }
+
     const patch = {
       team_name: newTeam && newTeam.trim() !== "" ? newTeam.trim() : null,
       player_name: newPlayer && newPlayer.trim() !== "" ? newPlayer.trim() : null,
       position: isNaN(posNum) ? entry.position : posNum,
-      points: pointsForSportPosition(entry.sport, isNaN(posNum) ? entry.position : posNum)
+      points: finalPoints
     };
     const { error } = await supabase.from("leaderboard_entries").update(patch).eq("id", entry.id);
     if (error) { setMessage("Update error: " + (error.message || JSON.stringify(error))); return; }
@@ -582,6 +613,20 @@ Updated: ${now}
             </select>
             {!meta.ageClass && <div className="small" style={{ marginTop: 6 }}>Choose Age Class first to see allowed sports.</div>}
           </div>
+
+          <div style={{ minWidth: 240 }}>
+            <label>4th Position Points (override)</label>
+            <input
+              className="input"
+              type="number"
+              placeholder="Leave blank to use default"
+              value={fourthPointsOverride}
+              onChange={e => setFourthPointsOverride(e.target.value)}
+            />
+            <div className="small" style={{ marginTop: 6 }}>
+              If set, this value will be used for the 4th position when submitting this event.
+            </div>
+          </div>
         </div>
 
         <div>
@@ -602,14 +647,16 @@ Updated: ${now}
                   <input className="input" value={positions[pos].player} onChange={e => setPositionPlayer(pos, e.target.value)} placeholder="Enter player name (optional)" />
                 </div>
 
-                <div className="small" style={{ marginTop: 6 }}>Points: {pointsForSportPosition(meta.sport || "", pos)}</div>
+                <div className="small" style={{ marginTop: 6 }}>
+                  Points: { pointsForSportPosition(meta.sport || "", pos) } {pos === 4 && fourthPointsOverride !== "" ? `(overridden → ${fourthPointsOverride})` : "" }
+                </div>
               </div>
             ))}
           </div>
 
           <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
             <button className="btn" onClick={submitResults} disabled={loading}>Submit Results</button>
-            <button className="btn secondary" onClick={() => { setMeta({ ageClass: "", sport: "" }); setPositions({ 1: { team: "", player: "" }, 2: { team: "", player: "" }, 3: { team: "", player: "" }, 4: { team: "", player: "" } }); setMessage(""); }}>Reset</button>
+            <button className="btn secondary" onClick={() => { setMeta({ ageClass: "", sport: "" }); setPositions({ 1: { team: "", player: "" }, 2: { team: "", player: "" }, 3: { team: "", player: "" }, 4: { team: "", player: "" } }); setFourthPointsOverride(""); setMessage(""); }}>Reset</button>
             <button className="btn secondary" onClick={fetchEntries}>Refresh</button>
           </div>
 
